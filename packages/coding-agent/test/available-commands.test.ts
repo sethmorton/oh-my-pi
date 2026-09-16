@@ -5,6 +5,7 @@ import { executeAcpBuiltinSlashCommand } from "@oh-my-pi/pi-coding-agent/slash-c
 import { buildAvailableSlashCommands } from "@oh-my-pi/pi-coding-agent/slash-commands/available-commands";
 import {
 	BUILTIN_SLASH_COMMANDS,
+	buildTuiBuiltinSlashCommands,
 	executeBuiltinSlashCommand,
 	filterBuiltinSlashCommands,
 	lookupBuiltinSlashCommand,
@@ -192,6 +193,9 @@ describe("buildAvailableSlashCommands", () => {
 	});
 
 	test("hides builtin names and individual aliases from autocomplete, ignoring unknown names", async () => {
+		const unfilteredProvider = new CombinedAutocompleteProvider([...BUILTIN_SLASH_COMMANDS], process.cwd());
+		const unfilteredAliases = await unfilteredProvider.getSuggestions(["/models"], 0, 7);
+		expect(unfilteredAliases?.items.map(item => item.value)).toContain("models");
 		const commands = filterBuiltinSlashCommands(BUILTIN_SLASH_COMMANDS, ["security", "models", "not-a-command"]);
 		const provider = new CombinedAutocompleteProvider(
 			[...commands, { name: "ext:hello" }, { name: "skill:reviewer" }],
@@ -201,12 +205,29 @@ describe("buildAvailableSlashCommands", () => {
 		const names = suggestions?.items.map(item => item.value);
 
 		expect(names).not.toContain("security");
-		expect(names).not.toContain("models");
+		const hiddenAliases = await provider.getSuggestions(["/models"], 0, 7);
+		expect(hiddenAliases?.items.map(item => item.value) ?? []).not.toContain("models");
 		expect(names).toContain("model");
 		expect(names).toContain("ext:hello");
 		const skills = await provider.getSuggestions(["/skill:"], 0, 7);
 		expect(skills?.items.map(item => item.value)).toContain("skill:reviewer");
 		expect(filterBuiltinSlashCommands(BUILTIN_SLASH_COMMANDS, ["not-a-command"])).toEqual(BUILTIN_SLASH_COMMANDS);
+	});
+
+	test("refreshes builtin autocomplete after hiding and unhiding commands", async () => {
+		const settings = Settings.isolated();
+		const ctx = { settings } as InteractiveModeContext;
+		const refresh = () => new CombinedAutocompleteProvider([...buildTuiBuiltinSlashCommands({ ctx })], process.cwd());
+		let provider = refresh();
+		const suggestions = () => provider.getSuggestions(["/security"], 0, 9);
+
+		expect((await suggestions())?.items.map(item => item.value)).toContain("security");
+		settings.set("commands.hidden", ["security"]);
+		provider = refresh();
+		expect((await suggestions())?.items.map(item => item.value) ?? []).not.toContain("security");
+		settings.set("commands.hidden", []);
+		provider = refresh();
+		expect((await suggestions())?.items.map(item => item.value)).toContain("security");
 	});
 
 	test("hides ACP builtins without exposing commands shadowed by hidden names or aliases", async () => {

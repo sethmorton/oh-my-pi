@@ -118,7 +118,9 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<TuiBuiltinSlashCommand> = BUI
 );
 
 export function buildTuiBuiltinSlashCommands(runtime: TuiSlashCommandRuntime): ReadonlyArray<TuiBuiltinSlashCommand> {
-	return BUILTIN_SLASH_COMMAND_DEFS.map(cmd => materializeTuiBuiltinSlashCommand(cmd, runtime));
+	return filterBuiltinSlashCommands(BUILTIN_SLASH_COMMAND_DEFS, runtime.ctx.settings.get("commands.hidden")).map(cmd =>
+		materializeTuiBuiltinSlashCommand(cmd, runtime),
+	);
 }
 
 /**
