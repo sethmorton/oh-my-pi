@@ -5482,6 +5482,18 @@ export const SETTINGS_SCHEMA = {
 	"skills.includeSkills": { type: "array", default: [] as string[] },
 
 	// Commands
+	"commands.hidden": {
+		type: "array",
+		default: [] as string[],
+		ui: {
+			tab: "tasks",
+			group: "Commands & Skills",
+			label: "Hidden Built-in Commands",
+			description:
+				"Built-in slash command names to hide from the palette and autocomplete. Hidden commands still run when typed.",
+		},
+	},
+
 	"commands.enableClaudeUser": {
 		type: "boolean",
 		default: false,

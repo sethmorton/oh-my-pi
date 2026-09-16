@@ -121,7 +121,11 @@ import type { SessionContext } from "../session/session-context";
 import { getRecentSessions } from "../session/session-listing";
 import type { SessionManager } from "../session/session-manager";
 import type { ShakeMode } from "../session/shake-types";
-import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES, buildTuiBuiltinSlashCommands } from "../slash-commands/builtin-registry";
+import {
+	BUILTIN_SLASH_COMMAND_RESERVED_NAMES,
+	buildTuiBuiltinSlashCommands,
+	filterBuiltinSlashCommands,
+} from "../slash-commands/builtin-registry";
 import { buildStaticInlineHint } from "../slash-commands/builtin-completions";
 import { formatDuration } from "../slash-commands/helpers/format";
 import { STTController, type SttState } from "../stt";
@@ -1258,7 +1262,10 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		const skillCommandList = this.#rebuildSkillCommandsFromSession();
 
-		const builtinCommands: SlashCommand[] = buildTuiBuiltinSlashCommands({ ctx: this }).map(cmd => ({
+		const builtinCommands: SlashCommand[] = filterBuiltinSlashCommands(
+			buildTuiBuiltinSlashCommands({ ctx: this }),
+			this.settings.get("commands.hidden"),
+		).map(cmd => ({
 			...cmd,
 			icon: getSlashCommandTypeIcon(cmd.icon ?? "action"),
 		}));
@@ -1765,7 +1772,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		// execution resolves aliases before template expansion. Mirror that command
 		// resolution order by skipping templates whose names already appear in any
 		// builtin/hook/custom/skill/file command token.
-		const reservedNames = new Set<string>();
+		const reservedNames = new Set(BUILTIN_SLASH_COMMAND_RESERVED_NAMES);
 		for (const command of this.#pendingSlashCommands) {
 			reservedNames.add(command.name);
 			for (const alias of command.aliases ?? []) reservedNames.add(alias);

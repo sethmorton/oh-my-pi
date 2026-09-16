@@ -5,6 +5,7 @@
 ### Added
 
 - Added `tui.titleSpinner` (`braille` | `dots` | `line`, default `braille`) to pick the terminal-title working-state spinner glyphs alongside the existing `tui.titleState` on/off toggle.
+- Added `commands.hidden` to hide selected built-in slash commands from the palette and autocomplete without disabling typed commands.
 
 ## [18.2.1] - 2026-09-15
 

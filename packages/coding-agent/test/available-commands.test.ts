@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/types";
+import { executeAcpBuiltinSlashCommand } from "@oh-my-pi/pi-coding-agent/slash-commands/acp-builtins";
 import { buildAvailableSlashCommands } from "@oh-my-pi/pi-coding-agent/slash-commands/available-commands";
+import {
+	BUILTIN_SLASH_COMMANDS,
+	executeBuiltinSlashCommand,
+	filterBuiltinSlashCommands,
+	lookupBuiltinSlashCommand,
+} from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
+import type { SlashCommandRuntime } from "@oh-my-pi/pi-coding-agent/slash-commands/types";
+import { CombinedAutocompleteProvider } from "@oh-my-pi/pi-tui/autocomplete";
 
 describe("buildAvailableSlashCommands", () => {
 	test("returns RPC-safe command metadata with stable sources", async () => {
@@ -11,6 +22,7 @@ describe("buildAvailableSlashCommands", () => {
 			command: { name: "server:prompt", description: "MCP prompt" },
 		};
 		const session = {
+			settings: Settings.isolated(),
 			extensionRunner: {
 				getRegisteredCommands: () => [{ name: "ext:hello", description: "Extension hello" }],
 			},
@@ -68,6 +80,7 @@ describe("buildAvailableSlashCommands", () => {
 
 		const commands = await buildAvailableSlashCommands(
 			{
+				settings: Settings.isolated(),
 				customCommands: [],
 				skills: [],
 				sessionManager: { getCwd: () => process.cwd() },
@@ -96,6 +109,7 @@ describe("buildAvailableSlashCommands", () => {
 
 		const commands = await buildAvailableSlashCommands(
 			{
+				settings: Settings.isolated(),
 				customCommands: [],
 				skills: [],
 				sessionManager: { getCwd: () => process.cwd() },
@@ -112,6 +126,7 @@ describe("buildAvailableSlashCommands", () => {
 	test("classifies MCP prompts by path and bundled custom commands as custom", async () => {
 		const commands = await buildAvailableSlashCommands(
 			{
+				settings: Settings.isolated(),
 				customCommands: [
 					{
 						path: "mcp:server/prompt",
@@ -141,6 +156,7 @@ describe("buildAvailableSlashCommands", () => {
 	test("keeps legacy custom command fixtures without a path classified as custom", async () => {
 		const commands = await buildAvailableSlashCommands(
 			{
+				settings: Settings.isolated(),
 				customCommands: [{ command: { name: "legacy", description: "Legacy fixture" } }],
 				skills: [],
 				sessionManager: { getCwd: () => process.cwd() },
@@ -159,6 +175,7 @@ describe("buildAvailableSlashCommands", () => {
 		const fileCommands = [{ name: "models", description: "My models note", content: "body", source: "test" }];
 		const commands = await buildAvailableSlashCommands(
 			{
+				settings: Settings.isolated(),
 				customCommands: [{ command: { name: "plugin", description: "My plugin helper" } }],
 				skills: [],
 				sessionManager: { getCwd: () => "/tmp" },
@@ -172,5 +189,72 @@ describe("buildAvailableSlashCommands", () => {
 		expect(byName.models).toBeUndefined();
 		expect(byName.plugins.source).toBe("builtin");
 		expect(byName.plugins.aliases).toEqual(["plugin"]);
+	});
+
+	test("hides builtin names and individual aliases from autocomplete, ignoring unknown names", async () => {
+		const commands = filterBuiltinSlashCommands(BUILTIN_SLASH_COMMANDS, ["security", "models", "not-a-command"]);
+		const provider = new CombinedAutocompleteProvider(
+			[...commands, { name: "ext:hello" }, { name: "skill:reviewer" }],
+			process.cwd(),
+		);
+		const suggestions = await provider.getSuggestions(["/"], 0, 1);
+		const names = suggestions?.items.map(item => item.value);
+
+		expect(names).not.toContain("security");
+		expect(names).not.toContain("models");
+		expect(names).toContain("model");
+		expect(names).toContain("ext:hello");
+		const skills = await provider.getSuggestions(["/skill:"], 0, 7);
+		expect(skills?.items.map(item => item.value)).toContain("skill:reviewer");
+		expect(filterBuiltinSlashCommands(BUILTIN_SLASH_COMMANDS, ["not-a-command"])).toEqual(BUILTIN_SLASH_COMMANDS);
+	});
+
+	test("hides ACP builtins without exposing commands shadowed by hidden names or aliases", async () => {
+		const commands = await buildAvailableSlashCommands(
+			{
+				settings: Settings.isolated({
+					"commands.hidden": ["security", "plugins", "models", "ext:hello", "skill:reviewer"],
+				}),
+				extensionRunner: { getRegisteredCommands: () => [{ name: "ext:hello" }] },
+				customCommands: [{ command: { name: "security" } }, { command: { name: "plugin" } }],
+				skills: [{ name: "reviewer", description: "Review code" }],
+				skillsSettings: { enableSkillCommands: true },
+				sessionManager: { getCwd: () => process.cwd() },
+				setSlashCommands() {},
+			} as never,
+			async () => [{ name: "models", description: "Shadowed model alias", content: "body", source: "test" }],
+		);
+		const byName = Object.fromEntries(commands.map(command => [command.name, command]));
+
+		expect(byName.security).toBeUndefined();
+		expect(byName.plugins).toBeUndefined();
+		expect(byName.plugin).toBeUndefined();
+		expect(byName.models).toBeUndefined();
+		expect(byName.model.aliases).toEqual([]);
+		expect(byName["ext:hello"].source).toBe("extension");
+		expect(byName["skill:reviewer"].source).toBe("skill");
+	});
+
+	test("typed hidden commands still dispatch in TUI and ACP", async () => {
+		const settings = Settings.isolated({ "commands.hidden": ["security", "models"], "security.enabled": false });
+		filterBuiltinSlashCommands(BUILTIN_SLASH_COMMANDS, settings.get("commands.hidden"));
+		expect(lookupBuiltinSlashCommand("models")?.name).toBe("model");
+		const output: string[] = [];
+		const ctx = {
+			settings,
+			sessionManager: { getCwd: () => process.cwd() },
+			showStatus: (text: string) => output.push(text),
+			editor: { setText() {} },
+		} as unknown as InteractiveModeContext;
+
+		expect(await executeBuiltinSlashCommand("/security", { ctx })).toBe(true);
+		expect(
+			await executeAcpBuiltinSlashCommand("/security", {
+				settings,
+				output: (text: string) => output.push(text),
+			} as unknown as SlashCommandRuntime),
+		).toEqual({ consumed: true });
+		expect(output).toHaveLength(2);
+		expect(output.every(text => text.includes("Security is disabled"))).toBe(true);
 	});
 });

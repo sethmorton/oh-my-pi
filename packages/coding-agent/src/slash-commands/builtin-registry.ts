@@ -68,6 +68,21 @@ export const BUILTIN_SLASH_COMMAND_DEFS: ReadonlyArray<BuiltinSlashCommand> = BU
 	}),
 );
 
+export function filterBuiltinSlashCommands<T extends { name: string; aliases?: string[] }>(
+	commands: readonly T[],
+	hidden: readonly string[],
+): readonly T[] {
+	if (hidden.length === 0) return commands;
+	const names = new Set(hidden);
+	return commands
+		.filter(command => !names.has(command.name))
+		.map(command =>
+			command.aliases?.some(alias => names.has(alias))
+				? { ...command, aliases: command.aliases.filter(alias => !names.has(alias)) }
+				: command,
+		);
+}
+
 function materializeTuiBuiltinSlashCommand(
 	cmd: BuiltinSlashCommand,
 	runtime?: TuiSlashCommandRuntime,

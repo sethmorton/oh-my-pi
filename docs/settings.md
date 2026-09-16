@@ -728,6 +728,15 @@ The `cost` segment shows recorded session costs. For an active provider/model wi
 | `ask.timeout`          | number  | `0`             | Seconds before an `ask` prompt times out; `0` = no timeout. |
 | `ask.notify`           | enum    | `on`            | `on`, `off`.                                                                                            |
 
+### Commands
+
+Set `commands.hidden` (default `[]`) to built-in command names without the leading `/` to hide them from the palette and autocomplete, including ACP command lists. A primary name hides its command and aliases. An alias hides only that alias. Unknown names are ignored, and extension and skill commands are unaffected. Hidden commands still run when typed.
+
+```yaml
+commands:
+  hidden: [security, goal, guided-goal]
+```
+
 ### Providers and services
 
 ```yaml
